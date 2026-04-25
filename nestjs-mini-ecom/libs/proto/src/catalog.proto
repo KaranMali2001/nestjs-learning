@@ -1,0 +1,31 @@
+
+syntax = "proto3";
+package catalog;
+service CatalogService{
+rpc GetProducts (GetProductsReq) returns (ProductList);
+rpc GetProductById(GetProductByIdReq)  returns (Product);
+rpc Ping (PingReq) returns (PingResponse);
+}
+message PingReq {}
+message PingResponse {
+    bool ok=1;
+     string service_name=2;
+    string time =3;
+
+}
+message GetProductsReq{
+int32 page=1;
+
+}
+message GetProductByIdReq{
+int32 id=1;
+}
+
+message Product {
+    int32 id=1;
+    string name=2;
+    float price=3;
+}
+message ProductList {
+    repeated Product products=1;
+}

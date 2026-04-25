@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": ".",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/nestjs-mini-ecom/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": ".",
+  "projects": {
+    "catalog": {
+      "type": "application",
+      "root": "apps/catalog",
+      "entryFile": "main",
+      "sourceRoot": "apps/catalog/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/catalog/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "../../../libs/proto/src/*.proto",
+            "outDir": "./dist/apps/catalog",
+            "watchAssets": true
+          }
+        ]
+      }
+    },
+    "gateway": {
+      "type": "application",
+      "root": "apps/gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/gateway/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "../../../libs/proto/src/*.proto",
+            "outDir": "./dist/apps/gateway",
+            "watchAssets": true
+          }
+        ]
+      }
+    },
+    "media": {
+      "type": "application",
+      "root": "apps/media",
+      "entryFile": "main",
+      "sourceRoot": "apps/media/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/media/tsconfig.app.json"
+      }
+    },
+    "nestjs-mini-ecom": {
+      "type": "application",
+      "root": "apps/nestjs-mini-ecom",
+      "entryFile": "main",
+      "sourceRoot": "apps/nestjs-mini-ecom/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/nestjs-mini-ecom/tsconfig.app.json"
+      }
+    },
+    "proto": {
+      "type": "library",
+      "root": "libs/proto",
+      "entryFile": "index",
+      "sourceRoot": "libs/proto/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/proto/tsconfig.lib.json"
+      }
+    },
+    "search": {
+      "type": "application",
+      "root": "apps/search",
+      "entryFile": "main",
+      "sourceRoot": "apps/search/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/search/tsconfig.app.json"
+      }
+    }
+  }
+}
