@@ -1,9 +1,10 @@
+import { clerkMiddleware } from '@clerk/express';
 import { ConsoleLogger, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { Env } from './config/env';
-import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { GatewayModule } from './gateway.module';
+import { LoggingInterceptor } from './interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(GatewayModule, {
@@ -11,12 +12,13 @@ async function bootstrap() {
   });
 
   app.useGlobalInterceptors(new LoggingInterceptor());
-
   const config = app.get(ConfigService<Env>);
+  app.use(clerkMiddleware({ publishableKey: config.getOrThrow('CLERK_PUBLISHABLE_KEY') }));
   const port = config.getOrThrow<number>('PORT');
   const serviceName = config.getOrThrow<string>('SERVICE_NAME');
   const logger = new Logger(serviceName);
   await app.listen(port);
+  app.enableShutdownHooks();
   logger.log(`${serviceName} is running on port ${port}`);
 }
 bootstrap();

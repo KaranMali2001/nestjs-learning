@@ -23,6 +23,11 @@ export interface GetProductsReq {
   page: number;
 }
 
+export interface CreateProductReq {
+  name: string;
+  price: number;
+}
+
 export interface GetProductByIdReq {
   id: number;
 }
@@ -31,6 +36,7 @@ export interface Product {
   id: number;
   name: string;
   price: number;
+  imageUrl: string;
 }
 
 export interface ProductList {
@@ -44,6 +50,8 @@ export interface CatalogServiceClient {
 
   getProductById(request: GetProductByIdReq): Observable<Product>;
 
+  createProduct(request: CreateProductReq): Observable<Product>;
+
   ping(request: PingReq): Observable<PingResponse>;
 }
 
@@ -52,12 +60,14 @@ export interface CatalogServiceController {
 
   getProductById(request: GetProductByIdReq): Promise<Product> | Observable<Product> | Product;
 
+  createProduct(request: CreateProductReq): Promise<Product> | Observable<Product> | Product;
+
   ping(request: PingReq): Promise<PingResponse> | Observable<PingResponse> | PingResponse;
 }
 
 export function CatalogServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["getProducts", "getProductById", "ping"];
+    const grpcMethods: string[] = ["getProducts", "getProductById", "createProduct", "ping"];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("CatalogService", method)(constructor.prototype[method], method, descriptor);

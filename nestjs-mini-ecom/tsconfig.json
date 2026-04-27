@@ -22,12 +22,8 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@app/proto": [
-        "libs/proto/src"
-      ],
-      "@app/proto/*": [
-        "libs/proto/src/*"
-      ]
+      "@app/proto": ["libs/proto/src"],
+      "@app/proto/*": ["libs/proto/src/*"]
     }
   }
 }

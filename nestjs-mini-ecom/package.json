@@ -22,6 +22,7 @@
     "test:e2e": "jest --config ./apps/nestjs-mini-ecom/test/jest-e2e.json"
   },
   "dependencies": {
+    "@clerk/express": "^2.1.9",
     "@grpc/grpc-js": "^1.14.3",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",

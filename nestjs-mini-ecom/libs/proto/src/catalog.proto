@@ -4,6 +4,7 @@ package catalog;
 service CatalogService{
 rpc GetProducts (GetProductsReq) returns (ProductList);
 rpc GetProductById(GetProductByIdReq)  returns (Product);
+rpc CreateProduct (CreateProductReq) returns (Product);
 rpc Ping (PingReq) returns (PingResponse);
 }
 message PingReq {}
@@ -17,6 +18,11 @@ message GetProductsReq{
 int32 page=1;
 
 }
+message CreateProductReq {
+    
+    string name=1;
+    float price=2;
+}
 message GetProductByIdReq{
 int32 id=1;
 }
@@ -25,6 +31,7 @@ message Product {
     int32 id=1;
     string name=2;
     float price=3;
+    string imageUrl=4;
 }
 message ProductList {
     repeated Product products=1;

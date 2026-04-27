@@ -51,15 +51,6 @@
         "tsConfigPath": "apps/media/tsconfig.app.json"
       }
     },
-    "nestjs-mini-ecom": {
-      "type": "application",
-      "root": "apps/nestjs-mini-ecom",
-      "entryFile": "main",
-      "sourceRoot": "apps/nestjs-mini-ecom/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/nestjs-mini-ecom/tsconfig.app.json"
-      }
-    },
     "proto": {
       "type": "library",
       "root": "libs/proto",
