@@ -1,0 +1,227 @@
+# gRPC Concepts — Learning Notes
+
+## What is gRPC
+
+- Built on HTTP/2 — persistent connection, one TCP handshake, all RPCs reuse it
+- Uses Protocol Buffers — binary format, smaller than JSON, fields identified by numbers not names
+- Primarily server-to-server communication (browser needs grpc-web + proxy)
+- Handles back pressure via flow control
+
+---
+
+## HTTP/2 Stream vs gRPC Stream
+
+Two different things sharing the same word.
+
+**HTTP/2 stream** — transport level. One TCP connection, multiple logical lanes running concurrently. Each lane = one stream with a unique ID. One gRPC call = one HTTP/2 stream.
+
+**gRPC stream** — application level. Defined in `.proto` file. Means "this RPC sends/receives multiple messages" instead of one.
+
+```
+File upload client streaming in gRPC
+→ one HTTP/2 stream (the pipe)
+→ many gRPC messages (the water flowing through it)
+```
+
+---
+
+## The 4 RPC Types
+
+| Type | Direction | Use case |
+|---|---|---|
+| Unary | 1 req → 1 res | Classic request/response |
+| Server Streaming | 1 req → N res | Live feed, logs, notifications |
+| Client Streaming | N req → 1 res | File upload, batch data |
+| Bidirectional | N req → N res | Chat, real-time control |
+
+---
+
+## Back Pressure / Flow Control
+
+Two layers running simultaneously:
+
+```
+gRPC message
+    ↓
+HTTP/2 flow control window  ← per-stream + per-connection (65KB default)
+    ↓
+TCP sliding window          ← OS level, per-connection
+    ↓
+Network
+```
+
+- TCP prevents OS buffer overflow at transport level
+- HTTP/2 window gives per-stream control — one slow stream doesn't starve others
+- When receiver is slow → sender's write call BLOCKS (no data loss, no dropping)
+- Automatic by default. Manual control via `isReady()`, `setOnReadyHandler()`
+
+**Simulating back pressure:** Add `time.Sleep(100ms)` per message on server, stream 1000 messages from client. Watch client writes start blocking.
+
+---
+
+## Head-of-Line Blocking
+
+HTTP/2 runs multiple streams on ONE TCP connection. If a single packet drops, TCP freezes ALL streams while retransmitting. This is why HTTP/3 (QUIC/UDP) exists — packet loss on one stream doesn't affect others.
+
+---
+
+## Metadata
+
+gRPC's version of HTTP headers. Key-value pairs that travel alongside RPCs. Under the hood they ARE HTTP/2 headers.
+
+**Headers** — sent before messages (auth tokens, trace IDs)
+**Trailers** — sent AFTER all messages (final status, error details). HTTP can't do this — gRPC can via HTTP/2 `END_STREAM` frame.
+
+```
+HTTP:   Headers → Body
+gRPC:   Headers → Messages → Trailers
+```
+
+Rules:
+- Keys: ASCII, case-insensitive, cannot start with `grpc-`
+- Binary values: key must end with `-bin`
+- Default server limit: 8KB for request headers
+
+---
+
+## Interceptors
+
+Middleware for gRPC. 4 types:
+
+```
+                CLIENT SIDE        SERVER SIDE
+Unary RPC       Unary Client       Unary Server
+Streaming RPC   Stream Client      Stream Server
+```
+
+Execution model:
+```
+Request →  [interceptor 1]  →  [interceptor 2]  →  Handler
+Response ← [interceptor 1]  ← [interceptor 2]  ←  Handler
+```
+
+Order matters — auth interceptor before logging = only authenticated requests get logged.
+
+Common uses: auth, logging, tracing, metrics, panic recovery, rate limiting.
+
+---
+
+## Context — The Most Important Concept
+
+In HTTP everything is in `req`. In gRPC it's split:
+
+```go
+func (s *Server) GetUser(ctx context.Context, req *pb.GetUserRequest) {}
+//                        ↑ envelope                ↑ letter
+```
+
+- `req` — the protobuf payload (your data)
+- `ctx` — metadata + deadline + cancellation signal
+
+**Never create a fresh context mid-chain.** Always pass `ctx` downstream or you lose:
+- Auth tokens
+- Trace IDs
+- **The deadline** ← most dangerous to lose
+
+---
+
+## Deadlines
+
+**Timeout** = a duration ("5 seconds")
+**Deadline** = absolute point in time ("2:30:05 PM")
+
+gRPC uses deadlines internally. Timeout → converted to `now + N` → propagated as absolute deadline.
+
+```
+Client sets deadline → now + 5s = 2:30:05 PM
+Service A receives   → 3s remaining
+Service B receives   → 2s remaining  (same absolute deadline, gRPC calculates remaining)
+Service C receives   → 1s remaining
+```
+
+**What happens on expiry:**
+- Client gets `DEADLINE_EXCEEDED`
+- Server context gets cancelled
+- BUT — your code must check `ctx.Done()` or spawned goroutines keep running
+
+**Node.js is manual** — you must pass deadline explicitly:
+```typescript
+// Option 1: manual
+childClient.doWork({ task }, { deadline: parentCall.getDeadline() }, cb)
+
+// Option 2: propagate flags
+childClient.doWork({ task }, { parent: parentCall, propagate_flags: grpc.propagate.DEFAULTS }, cb)
+```
+
+Go and Java propagate automatically when you pass `ctx`.
+
+---
+
+## Status Codes (17 total)
+
+### Framework generates these — never return from your code
+| Code | When |
+|---|---|
+| `OK` | Success |
+| `CANCELLED` | Client cancelled |
+| `DEADLINE_EXCEEDED` | Deadline passed |
+| `UNKNOWN` | Error with no info |
+| `INTERNAL` | gRPC internal error |
+| `UNAVAILABLE` | Server down, safe to retry |
+| `UNAUTHENTICATED` | No valid credentials |
+
+### You return these from application code
+| Code | When |
+|---|---|
+| `NOT_FOUND` | Resource doesn't exist |
+| `ALREADY_EXISTS` | Creating something that exists |
+| `PERMISSION_DENIED` | Authenticated but not allowed |
+| `INVALID_ARGUMENT` | Bad input |
+| `RESOURCE_EXHAUSTED` | Rate limit, quota exceeded |
+| `FAILED_PRECONDITION` | System state wrong for operation |
+| `ABORTED` | Concurrency conflict |
+| `OUT_OF_RANGE` | Valid type, value out of bounds |
+| `UNIMPLEMENTED` | Method not implemented |
+| `DATA_LOSS` | Unrecoverable corruption |
+
+### The confusing three
+```
+age = -5             → INVALID_ARGUMENT   (bad input regardless of state)
+delete non-empty dir → FAILED_PRECONDITION (valid input, wrong system state)
+page 10 of 3 pages   → OUT_OF_RANGE       (valid type, exceeds bounds)
+
+no token sent        → UNAUTHENTICATED    (who are you?)
+token valid, wrong role → PERMISSION_DENIED (I know you, but no)
+```
+
+### Retry rules
+```
+Safe to retry:   UNAVAILABLE, RESOURCE_EXHAUSTED
+Never retry:     INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS
+```
+
+---
+
+## Real Company Lessons
+
+**Uber** — migrated push notifications to gRPC bidi. 45% drop in p95 latency. Key lesson: had to manually handle flow control during message bursts.
+
+**Dropbox** — built Courier framework ON TOP of gRPC. Added mandatory deadlines, circuit breaking, per-method ACLs, mTLS. Raw gRPC isn't enough at scale.
+
+**Datadog** — default gRPC load balancing sends all traffic to ONE pod in Kubernetes. Silent killer. Broken TCP connections take 15 minutes to detect without keepalive tuning.
+
+---
+
+## Things Not Yet Explored
+
+- Health checking
+- Keepalive
+- Retry policies + hedging
+- Load balancing
+- TLS / mTLS
+- Reflection + grpcdebug
+- Channelz
+- OpenTelemetry metrics
+- xDS / service mesh
+- Graceful shutdown
+- Compression

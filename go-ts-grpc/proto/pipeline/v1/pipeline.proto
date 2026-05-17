@@ -1,0 +1,59 @@
+syntax = "proto3";
+package pipeline.v1;
+import "google/protobuf/timestamp.proto";
+import "google/api/field_behavior.proto";
+
+option go_package = "github.com/karanmali5599/go-ts-grpc/server/gen/pipeline/v1;pipelinev1";
+message Pipeline {
+     string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+     string name = 2 [(google.api.field_behavior) = REQUIRED];
+     string description = 3 [(google.api.field_behavior) = OPTIONAL];
+     string user_owner_id = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+    repeated Job jobs = 5 [(google.api.field_behavior) = REQUIRED];
+}
+message Job {
+     string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+     string pipeline_id = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+     string name = 3 [(google.api.field_behavior) = REQUIRED];
+     string description = 4 [(google.api.field_behavior) = OPTIONAL];
+     oneof step{
+        CommandStep command = 5;
+        CodeStep code = 6;
+    }
+     JobStatus status = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+    int32 timeout_seconds = 8 [(google.api.field_behavior) = REQUIRED];
+     google.protobuf.Timestamp started_at = 30 [(google.api.field_behavior) = OUTPUT_ONLY];
+     google.protobuf.Timestamp ended_at = 31 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+message CommandStep {
+      string command = 1 [(google.api.field_behavior) = REQUIRED];
+}
+enum CodeLanguage {
+    CODE_LANGUAGE_UNSPECIFIED = 0;
+    CODE_LANGUAGE_NODE=2;
+    CODE_LANGUAGE_PYTHON=3;
+}
+message CodeStep {
+     CodeLanguage language = 1 [(google.api.field_behavior) = REQUIRED];
+     string code = 2 [(google.api.field_behavior) = REQUIRED];
+}
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCEEDED = 3;
+  JOB_STATUS_FAILED = 4;
+  JOB_STATUS_CANCELLED = 5;
+  JOB_STATUS_TIMED_OUT = 6;
+}
+
+message CreatePipelineAndJobsRequest {
+     Pipeline pipeline =1; 
+}
+message  CreatePipelineAndJobsResponse {
+     Pipeline pipeline =1;
+}
+
+service PipelineService {
+     rpc CreatePipelineAndJobs (CreatePipelineAndJobsRequest) returns (CreatePipelineAndJobsRequest);
+}
