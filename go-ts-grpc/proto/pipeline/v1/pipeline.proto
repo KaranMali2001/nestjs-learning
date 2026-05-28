@@ -55,5 +55,5 @@ message  CreatePipelineAndJobsResponse {
 }
 
 service PipelineService {
-     rpc CreatePipelineAndJobs (CreatePipelineAndJobsRequest) returns (CreatePipelineAndJobsRequest);
+     rpc CreatePipelineAndJobs (CreatePipelineAndJobsRequest) returns (CreatePipelineAndJobsResponse);
 }
