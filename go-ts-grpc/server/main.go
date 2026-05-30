@@ -6,7 +6,9 @@ import (
 	"log"
 	"net"
 
+	"buf.build/go/protovalidate"
 	pb "github.com/karanmali5599/go-ts-grpc/server/gen/pipeline/v1"
+	protovalidateinterceptor "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
@@ -50,13 +52,17 @@ func main() {
 		log.Fatalf("Failed to get listener %v", err)
 
 	}
+	validator, err := protovalidate.New()
+	if err != nil {
+		log.Fatalf("Failed to create protovalidate validator %v", err)
+	}
 
 	// this is creating the server which owns the socket
-
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			LoggingInterceptor,  // outermost — sees every request including auth failures
+			LoggingInterceptor, // outermost — sees every request including auth failures
 			AuthInterceptor,
+			protovalidateinterceptor.UnaryServerInterceptor(validator), // validates request payload after auth, before handler
 			RecoveryInterceptor, // innermost — converts handler panics to codes.Internal before outer interceptors see them
 		),
 	)

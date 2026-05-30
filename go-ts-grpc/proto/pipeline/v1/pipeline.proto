@@ -2,41 +2,91 @@ syntax = "proto3";
 package pipeline.v1;
 import "google/protobuf/timestamp.proto";
 import "google/api/field_behavior.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/karanmali5599/go-ts-grpc/server/gen/pipeline/v1;pipelinev1";
+
 message Pipeline {
      string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
-     string name = 2 [(google.api.field_behavior) = REQUIRED];
-     string description = 3 [(google.api.field_behavior) = OPTIONAL];
+     string name = 2 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).string = {min_len: 1, max_len: 100},
+          (buf.validate.field).cel = {
+               id: "pipeline.name.not_blank",
+               message: "name must not be blank",
+               expression: "this.trim().size() > 0"
+          }
+     ];
+     string description = 3 [
+          (google.api.field_behavior) = OPTIONAL,
+          (buf.validate.field).string.max_len = 400
+     ];
      string user_owner_id = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
-    repeated Job jobs = 5 [(google.api.field_behavior) = REQUIRED];
+     repeated Job jobs = 5 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).repeated = {min_items: 1, max_items: 50}
+     ];
 }
+
 message Job {
      string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
      string pipeline_id = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
-     string name = 3 [(google.api.field_behavior) = REQUIRED];
-     string description = 4 [(google.api.field_behavior) = OPTIONAL];
-     oneof step{
-        CommandStep command = 5;
-        CodeStep code = 6;
-    }
+     string name = 3 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).string = {min_len: 1, max_len: 100},
+          (buf.validate.field).cel = {
+               id: "job.name.not_blank",
+               message: "name must not be blank",
+               expression: "this.trim().size() > 0"
+          }
+     ];
+     string description = 4 [
+          (google.api.field_behavior) = OPTIONAL,
+          (buf.validate.field).string.max_len = 400
+     ];
+     oneof step {
+          option (buf.validate.oneof).required = true;
+          CommandStep command = 5;
+          CodeStep code = 6;
+     }
      JobStatus status = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
-    int32 timeout_seconds = 8 [(google.api.field_behavior) = REQUIRED];
+     int32 timeout_seconds = 8 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).int32 = {gt: 0, lte: 3600}
+     ];
      google.protobuf.Timestamp started_at = 30 [(google.api.field_behavior) = OUTPUT_ONLY];
      google.protobuf.Timestamp ended_at = 31 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
+
 message CommandStep {
-      string command = 1 [(google.api.field_behavior) = REQUIRED];
+     string command = 1 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).string = {min_len: 1, max_len: 4096},
+          (buf.validate.field).cel = {
+               id: "command.no_newlines",
+               message: "command must not contain newlines",
+               expression: "!this.contains('\n')"
+          }
+     ];
 }
+
 enum CodeLanguage {
     CODE_LANGUAGE_UNSPECIFIED = 0;
     CODE_LANGUAGE_NODE=2;
     CODE_LANGUAGE_PYTHON=3;
 }
+
 message CodeStep {
-     CodeLanguage language = 1 [(google.api.field_behavior) = REQUIRED];
-     string code = 2 [(google.api.field_behavior) = REQUIRED];
+     CodeLanguage language = 1 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).enum = {defined_only: true, not_in: [0]}
+     ];
+     string code = 2 [
+          (google.api.field_behavior) = REQUIRED,
+          (buf.validate.field).string = {min_len: 1, max_len: 100000}
+     ];
 }
+
 enum JobStatus {
   JOB_STATUS_UNSPECIFIED = 0;
   JOB_STATUS_PENDING = 1;
@@ -48,10 +98,10 @@ enum JobStatus {
 }
 
 message CreatePipelineAndJobsRequest {
-     Pipeline pipeline =1; 
+     Pipeline pipeline = 1 [(buf.validate.field).required = true];
 }
 message  CreatePipelineAndJobsResponse {
-     Pipeline pipeline =1;
+     Pipeline pipeline = 1;
 }
 
 service PipelineService {

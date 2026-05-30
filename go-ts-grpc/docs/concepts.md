@@ -202,6 +202,62 @@ Never retry:     INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS
 
 ---
 
+## Validation
+
+gRPC ships **no built-in validator**. proto3 has no wire-level `required`, and `(google.api.field_behavior) = REQUIRED` (AIP-203) is documentation only — Google's spec explicitly says it adds no validation. Two ecosystem options:
+
+| | `protoc-gen-validate` (PGV) | **`protovalidate`** ✅ |
+|---|---|---|
+| Status | Archived | Current (Buf, 2026) |
+| Custom rules | Limited | **CEL** expressions in proto |
+| Languages | Go, others | Go, Java, Python, C++, JS/TS |
+
+**Two Go packages with the same name** — alias one on import:
+- `buf.build/go/protovalidate` — core validator: `protovalidate.New()`, `Validate()`
+- `github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate` — gRPC middleware: `UnaryServerInterceptor`, `StreamServerInterceptor`
+
+Wiring:
+
+```go
+validator, _ := protovalidate.New()
+grpc.ChainUnaryInterceptor(
+    LoggingInterceptor,
+    AuthInterceptor,
+    protovalidateinterceptor.UnaryServerInterceptor(validator), // auth → validate → handler
+    RecoveryInterceptor,
+)
+```
+
+Failures return `codes.InvalidArgument` with the violation message — handler never sees a bad payload.
+
+**Annotations cheat-sheet:**
+```proto
+string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+repeated Job jobs = 5 [(buf.validate.field).repeated = {min_items: 1, max_items: 50}];
+int32 timeout_seconds = 8 [(buf.validate.field).int32 = {gt: 0, lte: 3600}];
+CodeLanguage language = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+Pipeline pipeline = 1 [(buf.validate.field).required = true];
+
+oneof step {
+    option (buf.validate.oneof).required = true;
+    CommandStep command = 5;
+    CodeStep code = 6;
+}
+
+// CEL custom rule
+string name = 2 [(buf.validate.field).cel = {
+    id: "pipeline.name.not_blank",
+    message: "name must not be blank",
+    expression: "this.trim().size() > 0"
+}];
+```
+
+**`field_behavior` vs `buf.validate.field`** — complementary, not substitutes. Keep `field_behavior` for documentation (especially `OUTPUT_ONLY`); add `buf.validate.field` for enforcement.
+
+**OUTPUT_ONLY trap** — if a single message is reused for both request and response, validating "empty on input" gets awkward. AIP-133 says: split into `CreateXInput` and `X`. For learning projects, skip validation on output-only fields.
+
+---
+
 ## Real Company Lessons
 
 **Uber** — migrated push notifications to gRPC bidi. 45% drop in p95 latency. Key lesson: had to manually handle flow control during message bursts.

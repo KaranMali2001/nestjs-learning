@@ -19,6 +19,7 @@ To start a new session, copy [_template.md](_template.md).
 | # | Date | Conversation ID | Topic | File |
 |---|---|---|---|---|
 | 01 | 2026-05-29 | `98b218a8-a0db-47f6-9cab-8115681a3a3b` | First server implementation: listener, registration, reflection, metadata, status errors | [phase-1-unary/01-server-impl.md](phase-1-unary/01-server-impl.md) |
+| 02 | 2026-05-30 | `82595e25-bf5f-4f62-a2d1-0772e6bc5b3d` | Request validation with protovalidate — CEL rules in proto, interceptor wiring, package-name collision | [phase-1-unary/02-validation-protovalidate.md](phase-1-unary/02-validation-protovalidate.md) |
 
 ## Phase 2 — Server Streaming (StreamJobLogs)
 *Not started.*
