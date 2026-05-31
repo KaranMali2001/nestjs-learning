@@ -104,6 +104,37 @@ Order matters — auth interceptor before logging = only authenticated requests 
 
 Common uses: auth, logging, tracing, metrics, panic recovery, rate limiting.
 
+### Wrapping order — interceptors compose as an onion, not a pipeline
+
+The word "chain" is misleading. `ChainUnaryInterceptor(A, B, C)` doesn't run A → B → C in sequence; it wraps them: A *calls* B, which *calls* C, which *calls* the handler. Element N+1 in the chain is element N's `handler` parameter.
+
+```
+ChainUnaryInterceptor(A, B, C):
+
+A(ctx, req, info, handler=B-bound) {
+   resp, err := handler(ctx, req)   // ← this *is* B
+   ...
+}
+
+B(ctx, req, info, handler=C-bound) {
+   resp, err := handler(ctx, req)   // ← this *is* C
+   ...
+}
+
+C(ctx, req, info, handler=real-handler) {
+   resp, err := handler(ctx, req)   // ← real RPC handler
+   ...
+}
+```
+
+**Consequence — to *wrap and reshape* another interceptor's error, your interceptor must come *before* it in the chain, not after.**
+
+If B short-circuits (returns an error without calling its handler), then C never runs. So if you want to repackage B's error, you need to be A (so B is *your* handler call). Putting your wrapper *after* B in the chain means it sits inside B and never runs when B short-circuits.
+
+This is the same pattern as Express/Koa middleware, Connect handlers, Python WSGI middleware — anything described with the word "chain" is actually nested wrapping. The mental shortcut "decorator" is more accurate than "pipeline."
+
+Concrete example from this project: `BeautifyValidationInterceptor` is placed *before* the protovalidate middleware in `ChainUnaryInterceptor` because it needs to wrap the middleware's call — so when the middleware returns an `InvalidArgument` error, Beautify sees it on the way out and can repackage the `Violations` detail.
+
 ---
 
 ## Context — The Most Important Concept

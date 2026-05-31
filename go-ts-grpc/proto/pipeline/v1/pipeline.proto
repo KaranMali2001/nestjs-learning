@@ -65,7 +65,7 @@ message CommandStep {
           (buf.validate.field).cel = {
                id: "command.no_newlines",
                message: "command must not contain newlines",
-               expression: "!this.contains('\n')"
+               expression: "!this.contains('\\n')"
           }
      ];
 }
