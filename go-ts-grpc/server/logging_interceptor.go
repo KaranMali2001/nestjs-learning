@@ -14,6 +14,8 @@ func LoggingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo
 	resp, err := handler(ctx, req)
 	duration := time.Since(start)
 	code := status.Code(err)
+	fmt.Println("LOGGING ERROR", err)
+
 	fmt.Printf("[gRPC] %-60s code=%s duration=%s\n", info.FullMethod, code, duration)
 	return resp, err
 }

@@ -3,7 +3,7 @@ conversation_id: 82595e25-bf5f-4f62-a2d1-0772e6bc5b3d
 date: 2026-05-30
 project: go-ts-grpc (CI/CD Pipeline Runner)
 phase: phase-1-unary
-status: protovalidate wired as interceptor; empty/invalid CreatePipelineAndJobs requests now rejected with InvalidArgument before reaching the handler
+status: protovalidate wired + BeautifyValidationInterceptor repackages Violations into google.rpc.BadRequest; per-field server log on failure; CEL `\n` escape fixed
 ---
 
 # Phase 1.02 — Request Validation with Protovalidate
@@ -91,12 +91,65 @@ For future-me — what's enforced after this session:
 
 ---
 
-## What's Next
+## Addendum — same conversation, after first round of testing
 
-1. **Verify end-to-end:** hit the server with grpcui sending empty / oversized / malformed payloads. Confirm `InvalidArgument` with the expected message, *before* reaching the handler.
-2. **Rich error details:** wrap validation failures with `status.WithDetails(...)` so the client gets a structured list of field violations, not just a string.
-3. **Phase 2:** server streaming (`StreamJobLogs`). Validation interceptor will need its `StreamServerInterceptor` counterpart added to the chain.
-4. **AIP-133 follow-up:** consider splitting `Pipeline` into separate request/response shapes once a second mutating RPC is added.
+End-to-end testing surfaced three things that needed fixing on top of the initial wiring. All resolved within this session.
+
+### Additional Decisions Made
+
+- **Decision:** Add a `BeautifyValidationInterceptor` *outside* the protovalidate middleware in the chain rather than replacing the middleware.
+  **Why:** The middleware already attaches the structured `Violations` proto as a status detail via `status.New(...).WithDetails(valErr.ToProto())` (confirmed by reading its source). The structured info is not lost — a downstream interceptor can pull it out of `status.Convert(err).Details()` and reshape it. Wrapping (not replacing) preserves the middleware's job, gets future upgrades for free, and keeps single-responsibility per interceptor.
+  **Where it lives in code:** `server/validation_beautify_interceptor.go`, and the chain order in `server/main.go` — `Beautify` is placed **before** the middleware in `ChainUnaryInterceptor` so that on the way out it sees the middleware's error.
+
+- **Decision:** Convert protovalidate's `Violations` into the standard `google.rpc.BadRequest` shape via `status.WithDetails`.
+  **Why:** `BadRequest` + `FieldViolation` is the well-known gRPC error contract that real clients (TS via `@grpc/grpc-js` + `errdetails`, Go via `errdetails`) decode out of the box. Reshaping once at the boundary means handlers and downstream code never have to know about protovalidate's specific proto.
+  **Where it lives in code:** loop inside `BeautifyValidationInterceptor` building `errdetails.BadRequest_FieldViolation` entries.
+
+- **Decision:** Log per-field violations **inside** `BeautifyValidationInterceptor` (`field=... rule=... msg=...`) rather than creating a separate `ErrorLoggingInterceptor`.
+  **Why:** Beautify already iterates the structured violations on its way through. A separate downstream interceptor would have to re-parse the error it just packaged — and would only ever see the squashed `"validation failed"` string, having lost the field detail. One interceptor doing transform + log on the same in-hand data is the right granularity; if a generic "log any error" emerges later, that belongs *in* `LoggingInterceptor`, not a third file.
+  **Where it lives in code:** `fmt.Printf("[validation] ... — N violation(s)")` plus per-violation lines inside the violations loop.
+
+- **Decision:** Escape `\n` inside CEL expressions as `\\n` in the proto source (or `\\x0A` per official docs).
+  **Why:** Proto string literals process escape sequences *before* CEL parses the expression. Writing `'\n'` in proto produces a *literal* newline in the string handed to CEL, which then sees `!this.contains('<actual newline>')` — i.e. a CEL string literal split across lines — and fails compilation with a parser syntax error. `\\n` in proto becomes the two-character sequence `\n`, which CEL correctly parses as a newline escape.
+  **Where it lives in code:** `CommandStep.command` CEL rule in `pipeline.proto` — `expression: "!this.contains('\\n')"`.
+
+### Additional Rough Edges Hit
+
+- **Symptom:** Sending a syntactically valid payload returned `code=Internal` (caught by `LoggingInterceptor`) — no `PANIC in ...` line from `RecoveryInterceptor`, so it was not a Go panic. Could not tell *what* was wrong because `LoggingInterceptor` only printed the code, not the message.
+  **Root cause:** The CEL expression on `CommandStep.command` was malformed. Protovalidate lazily compiles CEL on first use of each message type; compilation failed with a parser error, which the middleware returns as `Internal` (this is *not* a validation failure, it is the validator itself failing). The actual error was hidden because logging didn't surface `err.Error()`.
+  **Fix:** First — surface the error in `LoggingInterceptor` (added `fmt.Println("LOGGING ERROR", err)`). Then read the actual message, which revealed the CEL parser was choking on a literal newline character inside a string literal. Re-escaped as `\\n` in the proto.
+  **Lesson:** *Always log the error message, not just the code.* A `code=...` line alone is debugging by guesswork. Print `err.Error()` (or `status.Convert(err).Message()`) whenever `err != nil`. Also: protovalidate failure modes split into two categories — *your data is invalid* → `InvalidArgument` (good), and *your rules are broken* → `Internal` (configuration error, never a request-level issue). `Internal` from the validator never means the user did something wrong.
+
+- **Symptom:** After adding `BeautifyValidationInterceptor`, grpcui showed `"@error": "google.rpc.BadRequest is not recognized; see @value for raw binary message data"` even though the wire payload was correct.
+  **Root cause:** grpcui decodes error-detail `Any` values by looking up the type via server reflection. It only finds types belonging to *your* service's transitive imports — `google.rpc.BadRequest` lives in `genproto/googleapis/rpc/errdetails`, which the server imports in Go but doesn't expose through the proto schema, so reflection has no descriptor for it. The payload itself was fine — real clients with `errdetails` imported decode it without issue.
+  **Fix:** None applied this session. Discussed two options: (a) define `ValidationFailure` + `FieldViolation` messages in `pipeline.v1` so reflection picks them up; (b) accept grpcui's limitation and rely on real-client decoding. User chose (b) for now — the on-wire contract is what production traffic uses, and the server-side log already provides full dev visibility.
+  **Lesson:** grpcui ≠ real clients. It is a reflection-driven dev tool; well-known external types in error details won't render unless you bring their descriptors into your service's reflection surface (typically by defining your own equivalent in your proto package). Decide whether you optimise for grpcui (your own types) or for cross-service consistency (errdetails). For learning projects, server logs cover dev visibility either way.
+
+- **Symptom:** `code=Internal` mystery hung around longer than necessary because `LoggingInterceptor` only printed `code` and `duration`.
+  **Root cause:** Same as above — silent logger. Worth calling out separately as a design lesson, not just a debug-driver.
+  **Fix:** Log `err.Error()` and (where applicable) `status.Convert(err).Details()` to surface attached protos.
+  **Lesson:** A logging interceptor that doesn't log the error body is barely an interceptor. Default to logging everything you have access to on the error path; trim later if it gets noisy. The asymmetry is right: success path = code + duration, error path = code + duration + message + details.
+
+### Additional Concepts Learned
+
+- **Interceptor wrapping order in `ChainUnaryInterceptor`** — interceptors form an onion. Element N+1 in the chain is *called by* element N (it is element N's `handler`). To **wrap** another interceptor's behavior (e.g. observe or reshape its error), your interceptor must come *before* the target in the chain, not after. Beautify *before* protovalidate-middleware = Beautify wraps it.
+- **Lazy CEL compilation in protovalidate** — `protovalidate.New()` returns without ever touching CEL. CEL expressions are compiled per message type on the first `Validate(msg)` call. Implications: (1) startup is fast, (2) CEL errors don't surface until runtime, (3) test every CEL rule at least once before deployment or you'll discover the parse error in prod.
+- **`status.Convert` vs `status.Code` vs `status.FromError`** — `Code(err)` returns just the code (`OK` for nil, `Unknown` for non-status errors). `Convert(err)` always returns a non-nil `*Status` (synthesises `Unknown` if the error isn't a real gRPC status). `FromError(err)` returns `(*Status, bool)` where the bool tells you whether the error was a real gRPC status. Rule of thumb: `Convert` for logging (safe + complete), `FromError` when the bool changes behavior, `Code` when you only need the code.
+- **`google.rpc.BadRequest` / `FieldViolation` are the gRPC-standard error contract** — defined in `google/rpc/error_details.proto`, exposed in Go as `google.golang.org/genproto/googleapis/rpc/errdetails`. Used by Google's own APIs (Cloud, AIP). If you don't have a strong reason to invent your own error-detail proto, use these.
+- **Two-source-of-truth pitfall when a `.proto` schema changes:** Go server reads the *compiled* `pipeline.pb.go` for descriptors, including the bytes of CEL expressions inside annotations. Editing `pipeline.proto` without running `buf generate` means the validator still sees the old CEL. After every CEL/annotation edit: regen first, then restart.
+
+### Updated What's Next
+
+1. **Verify the new BadRequest payload in a real client** — once the TS client is wired (Phase 2), confirm `@grpc/grpc-js` + `errdetails` decodes the field violations without manual unmarshalling. This closes the loop on whether the choice to keep `errdetails.BadRequest` (over a self-defined `ValidationFailure`) holds up in practice.
+2. **Phase 2 (server streaming):** the same protovalidate middleware ships a `StreamServerInterceptor`. The Beautify wrapper does not — it would need a streaming counterpart that intercepts the final stream-close error.
+3. **Optional:** if grpcui dev experience matters, swap to a self-defined `ValidationFailure` message in `pipeline.v1` so reflection covers it. Cost: one new message + Beautify uses it instead of `errdetails.BadRequest`. Benefit: grpcui renders the violations natively.
+4. **AIP-133 follow-up:** still on the shelf — revisit when a second mutating RPC lands.
+
+### Open Questions — revised
+
+- *Is keeping `errdetails.BadRequest` worth the grpcui dev-UX hit?* — depends on whether the TS client (Phase 2) decodes cleanly. Tracking.
+- *Should `LoggingInterceptor` walk `status.Convert(err).Details()` and dump them too?* — would cover *all* future error-detail types automatically (not just validation). Cheap to add, but currently Beautify covers the validation case explicitly. Decision deferred.
+- *What happens to the Beautify wrapper when the request is a stream?* — `StreamServerInterceptor` has a very different shape (works on the stream object, not request/response pairs). To be investigated in Phase 2.
 
 ---
 
