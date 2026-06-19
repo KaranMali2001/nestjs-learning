@@ -1,4 +1,3 @@
-server/gen/
-client/gen/
+
 node_modules/
 client/node_modules/

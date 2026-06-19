@@ -7,8 +7,8 @@ import (
 	"net"
 
 	"buf.build/go/protovalidate"
-	pb "github.com/karanmali5599/go-ts-grpc/server/gen/pipeline/v1"
 	protovalidateinterceptor "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
+	pb "github.com/karanmali5599/go-ts-grpc/server/gen/pipeline/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
@@ -60,11 +60,11 @@ func main() {
 	// this is creating the server which owns the socket
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			LoggingInterceptor,             // outermost — sees every request including auth failures
+			LoggingInterceptor, // outermost — sees every request including auth failures
 			AuthInterceptor,
-			BeautifyValidationInterceptor,                              // wraps the validator — repackages its Violations into google.rpc.BadRequest
+			BeautifyValidationInterceptor, // wraps the validator — repackages its Violations into google.rpc.BadRequest
 			protovalidateinterceptor.UnaryServerInterceptor(validator), // validates request payload after auth, before handler
-			RecoveryInterceptor,                                        // innermost — converts handler panics to codes.Internal before outer interceptors see them
+			RecoveryInterceptor, // innermost — converts handler panics to codes.Internal before outer interceptors see them
 		),
 	)
 
